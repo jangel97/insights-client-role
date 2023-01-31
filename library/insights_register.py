@@ -3,6 +3,9 @@
 # Copyright: (c) 2018, Terry Jones <terry.jones@example.org>
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
+from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
+
 ANSIBLE_METADATA = {
     'metadata_version': '1.1',
     'status': ['preview'],
@@ -12,36 +15,40 @@ ANSIBLE_METADATA = {
 DOCUMENTATION = '''
 ---
 module: insights_register
-
 short_description: This module registers the insights client
-
-description:
-    - This module will check the current registration status, unregister if needed,
-    and then register the insights client (and update the display_name if needed)
+description: >
+  This module will check the current registration status, unregister if needed,
+  and then register the insights client (and update the display_name if needed)
 
 options:
-    state:
-        description:
-            - Determines whether to register or unregister insights-client
-        choices: ["present", "absent"]
-        required: true
-    insights_name:
-        description:
-            - For now, this is just 'insights-client', but it could change in the future
-            so having it as a variable is just preparing for that
-        required: false
-    display_name:
-        description:
-            - This option is here to enable registering with a display_name outside of using
-            a configuration file. Some may be used to doing it this way so I left this in as
-            an optional parameter.
-        required: false
-    force_reregister:
-        description:
-            - This option should be set to true if you wish to force a reregister of the insights-client.
-            Note that this will remove the existing machine-id and create a new one. Only use this option
-            if you are okay with creating a new machine-id.
-        required: false
+  state:
+    description:
+      - Determines whether to register or unregister insights-client
+    choices: [ present, absent ]
+    default: present
+    type: str
+  insights_name:
+    description: >
+      For now, this is just 'insights-client', but it could change in the future
+      so having it as a variable is just preparing for that
+    default: 'insights-client'
+    required: false
+    type: str
+  display_name:
+    description: >
+      This option is here to enable registering with a display_name outside of using
+      a configuration file. Some may be used to doing it this way so I left this in as
+      an optional parameter.
+    required: false
+    type: str
+  force_reregister:
+    description: >
+      This option should be set to true if you wish to force a reregister of the insights-client.
+      Note that this will remove the existing machine-id and create a new one. Only use this option
+      if you are okay with creating a new machine-id.
+    default: false
+    required: false
+    type: bool
 
 author:
     - Jason Stephens (@Jason-RH)
@@ -54,7 +61,7 @@ EXAMPLES = '''
     state: present
 
 # Force a Reregister (for config changes, etc)
-- name: Resgiter the insights client
+- name: Register the insights client
   insights_register:
     state: present
     force_reregister: true
@@ -70,21 +77,26 @@ EXAMPLES = '''
     state: present
     insights_name: 'redhat-access-insights'
 
-Note: The above example for registering redhat-access-insights requires that the playbook be
-changed to install redhat-access-insights and that redhat-access-insights is also passed into
-the insights_config module and that the file paths be changed when using the file module
+#Note: The above example for registering redhat-access-insights requires that the playbook be
+#changed to install redhat-access-insights and that redhat-access-insights is also passed into
+#the insights_config module and that the file paths be changed when using the file module
 '''
 
 RETURN = '''
 original_message:
     description: Just a sentence declaring that there is a registration attempt
     type: str
+    returned: always
 message:
     description: The output message that the module generates
+    type: str
+    returned: always
 '''
 
 from ansible.module_utils.basic import AnsibleModule
 import subprocess
+from subprocess import PIPE, run
+
 
 def run_module():
     # define available arguments/parameters a user can pass to the module
@@ -107,18 +119,21 @@ def run_module():
     )
 
     if module.check_mode:
-        return result
+        module.exit_json(**result)
 
     state = module.params['state']
     insights_name = module.params['insights_name']
     display_name = module.params['display_name']
     force_reregister = module.params['force_reregister']
 
-    reg_status = subprocess.call([insights_name, '--status'])
+    command = [insights_name, '--status']
+    result_command = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    reg_status = result_command.returncode
+    stdout = result_command.stdout
 
     if state == 'present':
         result['original_message'] = 'Attempting to register ' + insights_name
-        if reg_status == 0 and not force_reregister:
+        if reg_status == 0 and not force_reregister and 'unregistered' not in stdout:
             result['changed'] = False
             result['message'] = 'The Insights API has determined that this machine is already registered'
             module.exit_json(**result)
@@ -135,7 +150,7 @@ def run_module():
 
     if state == 'absent':
         result['original_message'] = 'Attempting to unregister ' + insights_name
-        if reg_status is not 0:
+        if reg_status != 0:
             result['changed'] = False
             result['message'] = insights_name + ' is already unregistered'
             module.exit_json(**result)
@@ -145,8 +160,10 @@ def run_module():
             result['message'] = insights_name + ' has been unregistered'
             module.exit_json(**result)
 
+
 def main():
     run_module()
+
 
 if __name__ == '__main__':
     main()
